@@ -1,5 +1,6 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import SlackBolt from "@slack/bolt";
+import SlackBoltDefault from "@slack/bolt";
+import * as SlackBoltNamespace from "@slack/bolt";
 import type { SessionScope } from "../../config/sessions.js";
 import type { RuntimeEnv } from "../../runtime.js";
 import type { MonitorSlackOpts } from "./types.js";
@@ -22,14 +23,25 @@ import { registerSlackMonitorEvents } from "./events.js";
 import { createSlackMessageHandler } from "./message-handler.js";
 import { registerSlackMonitorSlashCommands } from "./slash.js";
 
-const slackBoltModule = SlackBolt as typeof import("@slack/bolt") & {
-  default?: typeof import("@slack/bolt");
-};
-// Bun allows named imports from CJS; Node ESM doesn't. Use default+fallback for compatibility.
-// Fix: Check if module has App property directly (Node 25.x ESM/CJS compat issue)
-const slackBolt =
-  (slackBoltModule.App ? slackBoltModule : slackBoltModule.default) ?? slackBoltModule;
-const { App, HTTPReceiver } = slackBolt;
+// Handle ESM/CJS interop across Node and Bun:
+// - Node ESM: default import is object with App, HTTPReceiver (or via .default)
+// - Bun: default import IS the App class directly; namespace import has HTTPReceiver
+type SlackBoltModule = typeof import("@slack/bolt") & { default?: typeof import("@slack/bolt") };
+const mod = SlackBoltDefault as unknown;
+const ns = SlackBoltNamespace as SlackBoltModule;
+
+const App: typeof import("@slack/bolt").App =
+  (typeof mod === "function" && (mod as { name?: string }).name === "App"
+    ? (mod as typeof import("@slack/bolt").App)
+    : null) ??
+  ns.App ??
+  (mod as SlackBoltModule).App ??
+  (mod as SlackBoltModule).default?.App;
+
+const HTTPReceiver: typeof import("@slack/bolt").HTTPReceiver =
+  ns.HTTPReceiver ??
+  (mod as SlackBoltModule).HTTPReceiver ??
+  (mod as SlackBoltModule).default?.HTTPReceiver;
 function parseApiAppIdFromAppToken(raw?: string) {
   const token = raw?.trim();
   if (!token) {
